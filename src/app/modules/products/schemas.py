@@ -5,7 +5,6 @@ from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 
 
 class ProductCreate(BaseModel):
-    """Validated payload for adding a product to monitoring."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -14,7 +13,6 @@ class ProductCreate(BaseModel):
 
 
 class ProductRead(BaseModel):
-    """Product representation returned by the HTTP API."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -25,7 +23,6 @@ class ProductRead(BaseModel):
 
 
 class PriceHistoryRead(BaseModel):
-    """A price observation returned by the HTTP API."""
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -57,6 +57,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    volumes:                    
+      - .:/app                    
     restart: unless-stopped
     environment: *app-environment
     ports:
@@ -71,6 +73,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    volumes:                     
+      - .:/app
     command: celery -A app.workers.celery_app:celery_app worker --loglevel=${LOG_LEVEL:-INFO}
     restart: unless-stopped
     environment: *app-environment

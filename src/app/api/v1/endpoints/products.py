@@ -20,7 +20,6 @@ async def create_product(
     product_in: ProductCreate,
     session: DatabaseSession,
 ) -> Product:
-    """Create a product that will be monitored by the collection worker."""
     target_url = str(product_in.target_url)
 
     product = Product(name=product_in.name, target_url=target_url)
@@ -45,7 +44,6 @@ async def list_active_products(
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> list[Product]:
-    """Return a paginated list of active monitored products."""
     result = await session.scalars(
         select(Product)
         .where(Product.is_active.is_(True))
@@ -61,7 +59,6 @@ async def list_product_price_history(
     product_id: int,
     session: DatabaseSession,
 ) -> list[PriceHistory]:
-    """Return a product's price history ordered from newest to oldest."""
     product = await session.scalar(select(Product).where(Product.id == product_id))
     if product is None:
         raise HTTPException(

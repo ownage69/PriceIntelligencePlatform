@@ -12,6 +12,8 @@ RUN groupadd --system app && useradd --system --gid app --create-home app
 COPY requirements.txt ./
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
+COPY --chown=app:app alembic.ini ./
+COPY --chown=app:app alembic ./alembic
 COPY --chown=app:app src ./src
 
 USER app
@@ -19,4 +21,3 @@ USER app
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-

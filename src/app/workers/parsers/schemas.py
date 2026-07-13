@@ -5,7 +5,6 @@ from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator
 
 
 class ParsedPrice(BaseModel):
-    """A validated price extracted from an external product page."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -17,7 +16,6 @@ class ParsedPrice(BaseModel):
     @field_validator("currency", mode="before")
     @classmethod
     def normalize_currency(cls, value: object) -> str:
-        """Normalize a parser-provided ISO 4217 currency code."""
         if not isinstance(value, str):
             raise ValueError("Currency must be a string.")
         return value.upper()
