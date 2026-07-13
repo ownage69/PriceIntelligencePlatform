@@ -17,7 +17,7 @@ class Product(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    target_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    target_url: Mapped[str] = mapped_column(String(2048), unique=True, nullable=False)
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,

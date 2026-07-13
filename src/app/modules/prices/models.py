@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
 
 class PriceHistory(Base):
-    """An immutable price observation for a monitored product."""
 
     __tablename__ = "price_history"
     __table_args__ = (
