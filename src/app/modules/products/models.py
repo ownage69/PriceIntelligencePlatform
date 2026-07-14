@@ -31,12 +31,14 @@ class Product(Base):
     )
 
     price_history: Mapped[list[PriceHistory]] = relationship(
+        "PriceHistory",
         back_populates="product",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    store: Mapped[Store | None] = relationship(back_populates="products")
+    store: Mapped[Store | None] = relationship("Store", back_populates="products")
     tags: Mapped[list[Tag]] = relationship(
+        "Tag",
         secondary="product_tags",
         back_populates="products",
     )

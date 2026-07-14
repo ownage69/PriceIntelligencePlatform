@@ -33,4 +33,4 @@ class PriceHistory(Base):
         nullable=False,
     )
 
-    product: Mapped[Product] = relationship(back_populates="price_history")
+    product: Mapped[Product] = relationship("Product", back_populates="price_history")

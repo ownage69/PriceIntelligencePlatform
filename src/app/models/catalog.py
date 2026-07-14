@@ -27,7 +27,7 @@ class Store(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     domain: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
 
-    products: Mapped[list[Product]] = relationship(back_populates="store")
+    products: Mapped[list[Product]] = relationship("Product", back_populates="store")
 
 
 class Tag(Base):
@@ -38,6 +38,7 @@ class Tag(Base):
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
 
     products: Mapped[list[Product]] = relationship(
+        "Product",
         secondary=product_tags,
         back_populates="tags",
     )
