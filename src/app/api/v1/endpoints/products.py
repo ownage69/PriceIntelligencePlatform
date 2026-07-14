@@ -9,7 +9,13 @@ from app.api.deps import get_db_session
 from app.core.exceptions import ProductAlreadyExistsError, ProductNotFoundError
 from app.modules.prices.models import PriceHistory
 from app.modules.products.models import Product
-from app.modules.products.schemas import PriceHistoryRead, ProductCreate, ProductRead
+from app.modules.products.schemas import (
+    BulkCreateResponse,
+    PriceHistoryRead,
+    ProductBulkCreate,
+    ProductCreate,
+    ProductRead,
+)
 from app.schemas.pagination import PaginatedResponse
 
 router = APIRouter(prefix="/products", tags=["products"])
@@ -54,6 +60,20 @@ async def create_product(
 
     await session.refresh(product)
     return product
+
+
+@router.post("/bulk", response_model=BulkCreateResponse, status_code=status.HTTP_201_CREATED)
+async def bulk_create_products(
+    data: ProductBulkCreate,
+    session: DatabaseSession,
+) -> BulkCreateResponse:
+    products = [
+        Product(name=str(target_url), target_url=str(target_url))
+        for target_url in data.target_urls
+    ]
+    session.add_all(products)
+    await session.commit()
+    return BulkCreateResponse(added_count=len(products))
 
 
 @router.get("/", response_model=PaginatedResponse[ProductRead])
