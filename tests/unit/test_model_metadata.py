@@ -4,7 +4,6 @@ from app.db.models import Base
 
 
 def test_catalog_models_are_registered_in_metadata() -> None:
-    """Ensure Alembic discovers the new tables and Product relationships."""
     configure_mappers()
 
     tables = Base.metadata.tables

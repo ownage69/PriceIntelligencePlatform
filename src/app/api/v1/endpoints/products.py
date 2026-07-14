@@ -1,11 +1,12 @@
 from typing import Annotated, TypeAlias
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import desc, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db_session
+from app.core.exceptions import ProductAlreadyExistsError, ProductNotFoundError
 from app.modules.prices.models import PriceHistory
 from app.modules.products.models import Product
 from app.modules.products.schemas import PriceHistoryRead, ProductCreate, ProductRead
@@ -27,12 +28,9 @@ async def create_product(
 
     try:
         await session.commit()
-    except IntegrityError as error:
+    except IntegrityError:
         await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A product with this target URL already exists.",
-        ) from error
+        raise ProductAlreadyExistsError(target_url)
 
     await session.refresh(product)
     return product
@@ -61,10 +59,7 @@ async def list_product_price_history(
 ) -> list[PriceHistory]:
     product = await session.scalar(select(Product).where(Product.id == product_id))
     if product is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Product not found.",
-        )
+        raise ProductNotFoundError(product_id)
 
     result = await session.scalars(
         select(PriceHistory)
