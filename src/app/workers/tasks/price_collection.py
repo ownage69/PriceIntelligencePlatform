@@ -12,6 +12,8 @@ from pydantic import ValidationError
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import app.db.models
+
 from app.db.session import async_session_factory
 from app.modules.prices.models import PriceHistory
 from app.modules.products.models import Product
