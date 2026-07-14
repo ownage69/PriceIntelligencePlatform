@@ -12,6 +12,14 @@ class ProductCreate(BaseModel):
     target_url: AnyHttpUrl
 
 
+class ProductBulkCreate(BaseModel):
+    target_urls: list[AnyHttpUrl]
+
+
+class BulkCreateResponse(BaseModel):
+    added_count: int
+
+
 class ProductRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
