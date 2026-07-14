@@ -1,7 +1,7 @@
 from typing import Annotated, TypeAlias
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,10 +10,30 @@ from app.core.exceptions import ProductAlreadyExistsError, ProductNotFoundError
 from app.modules.prices.models import PriceHistory
 from app.modules.products.models import Product
 from app.modules.products.schemas import PriceHistoryRead, ProductCreate, ProductRead
+from app.schemas.pagination import PaginatedResponse
 
 router = APIRouter(prefix="/products", tags=["products"])
 
 DatabaseSession: TypeAlias = Annotated[AsyncSession, Depends(get_db_session)]
+
+
+async def get_active_products(
+    session: AsyncSession,
+    page: int = 1,
+    size: int = 50,
+) -> tuple[int, list[Product]]:
+    offset = (page - 1) * size
+    total_items = await session.scalar(
+        select(func.count()).select_from(Product).where(Product.is_active.is_(True))
+    )
+    items = await session.scalars(
+        select(Product)
+        .where(Product.is_active.is_(True))
+        .order_by(Product.id)
+        .offset(offset)
+        .limit(size)
+    )
+    return total_items or 0, list(items)
 
 
 @router.post("/", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
@@ -36,20 +56,24 @@ async def create_product(
     return product
 
 
-@router.get("/", response_model=list[ProductRead])
+@router.get("/", response_model=PaginatedResponse[ProductRead])
 async def list_active_products(
     session: DatabaseSession,
-    offset: Annotated[int, Query(ge=0)] = 0,
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-) -> list[Product]:
-    result = await session.scalars(
-        select(Product)
-        .where(Product.is_active.is_(True))
-        .order_by(Product.id)
-        .offset(offset)
-        .limit(limit)
+    page: Annotated[int, Query(ge=1)] = 1,
+    size: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> PaginatedResponse[ProductRead]:
+    total_items, items = await get_active_products(
+        session=session,
+        page=page,
+        size=size,
     )
-    return list(result)
+    return PaginatedResponse[ProductRead](
+        total_items=total_items,
+        page=page,
+        size=size,
+        total_pages=(total_items + size - 1) // size,
+        items=[ProductRead.model_validate(item) for item in items],
+    )
 
 
 @router.get("/{product_id}/prices", response_model=list[PriceHistoryRead])
