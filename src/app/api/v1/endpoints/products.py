@@ -72,7 +72,11 @@ async def bulk_create_products(
         for target_url in data.target_urls
     ]
     session.add_all(products)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise ProductAlreadyExistsError("Один или несколько URL")
     return BulkCreateResponse(added_count=len(products))
 
 
