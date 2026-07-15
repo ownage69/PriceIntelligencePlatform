@@ -19,3 +19,7 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Celery
+celerybeat-schedule
+celerybeat-schedule.*
+celerybeat.pid
