@@ -45,6 +45,28 @@ class ProductNotFoundError(BaseAPIException):
         )
 
 
+class StoreAlreadyExistsError(BaseAPIException):
+
+    status_code: int = status.HTTP_409_CONFLICT
+
+    def __init__(self, domain: str) -> None:
+        super().__init__(
+            message="A store with this domain already exists.",
+            details={"domain": domain},
+        )
+
+
+class StoreNotFoundError(BaseAPIException):
+
+    status_code: int = status.HTTP_404_NOT_FOUND
+
+    def __init__(self, store_id: int) -> None:
+        super().__init__(
+            message="Store not found.",
+            details={"store_id": store_id},
+        )
+
+
 class ErrorBody(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
