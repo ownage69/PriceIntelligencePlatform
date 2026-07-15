@@ -3,6 +3,8 @@ from decimal import Decimal
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 
+from app.modules.stores.schemas import StoreRead
+from app.modules.tags.schemas import TagRead
 
 class ProductCreate(BaseModel):
 
@@ -28,7 +30,8 @@ class ProductRead(BaseModel):
     name: str
     target_url: AnyHttpUrl
     is_active: bool
-
+    store: StoreRead | None = None
+    tags: list[TagRead] = Field(default_factory=list)
 
 class PriceHistoryRead(BaseModel):
 

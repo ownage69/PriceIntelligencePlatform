@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import desc, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.api.deps import get_db_session
 from app.core.exceptions import ProductAlreadyExistsError, ProductNotFoundError
@@ -35,6 +36,10 @@ async def get_active_products(
     items = await session.scalars(
         select(Product)
         .where(Product.is_active.is_(True))
+        .options(
+            joinedload(Product.store), 
+            selectinload(Product.tags)  
+        )
         .order_by(Product.id)
         .offset(offset)
         .limit(size)
