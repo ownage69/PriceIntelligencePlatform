@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import settings
 
@@ -19,3 +20,10 @@ celery_app.conf.update(
     task_track_started=True,
     timezone="UTC",
 )
+
+celery_app.conf.beat_schedule = {
+    "collect-prices-every-hour": {
+        "task": "price_collection.collect_active_product_prices",
+        "schedule": crontab(minute=0), 
+    },
+}
