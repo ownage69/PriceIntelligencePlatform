@@ -11,7 +11,7 @@ from app.api.deps import get_db_session
 from app.core.exceptions import ProductAlreadyExistsError, ProductNotFoundError
 from app.modules.prices.models import PriceHistory
 from app.modules.products.models import Product
-from app.models.catalog import Tag
+from app.models.catalog import Store, Tag
 from app.modules.products.schemas import (
     BulkCreateResponse,
     PriceHistoryRead,
@@ -31,18 +31,29 @@ async def get_active_products(
     session: AsyncSession,
     page: int = 1,
     size: int = 50,
+    store_name: str | None = None,
+    tag_name: str | None = None,
 ) -> tuple[int, list[Product]]:
+    stmt = select(Product).where(Product.is_active.is_(True))
+    count_stmt = select(func.count(Product.id.distinct())).where(Product.is_active.is_(True))
+
+    if store_name:
+        stmt = stmt.join(Product.store).where(Store.name.ilike(f"%{store_name}%"))
+        count_stmt = count_stmt.join(Product.store).where(Store.name.ilike(f"%{store_name}%"))
+
+    if tag_name:
+        stmt = stmt.join(Product.tags).where(Tag.name.ilike(f"%{tag_name}%"))
+        count_stmt = count_stmt.join(Product.tags).where(Tag.name.ilike(f"%{tag_name}%"))
+
+    total_items = await session.scalar(count_stmt)
+
     offset = (page - 1) * size
-    total_items = await session.scalar(
-        select(func.count()).select_from(Product).where(Product.is_active.is_(True))
-    )
     items = await session.scalars(
-        select(Product)
-        .where(Product.is_active.is_(True))
-        .options(
-            joinedload(Product.store), 
-            selectinload(Product.tags)  
+        stmt.options(
+            joinedload(Product.store),
+            selectinload(Product.tags)
         )
+        .distinct()
         .order_by(Product.id)
         .offset(offset)
         .limit(size)
@@ -91,13 +102,17 @@ async def bulk_create_products(
 @router.get("/", response_model=PaginatedResponse[ProductRead])
 async def list_active_products(
     session: DatabaseSession,
-    page: Annotated[int, Query(ge=1)] = 1,
-    size: Annotated[int, Query(ge=1, le=100)] = 50,
+    page: Annotated[int, Query(ge=1, description="Page number")] = 1,
+    size: Annotated[int, Query(ge=1, le=100, description="Page size")] = 50,
+    store_name: Annotated[str | None, Query(description="Filter by store name")] = None,
+    tag_name: Annotated[str | None, Query(description="Filter by tag name")] = None,
 ) -> PaginatedResponse[ProductRead]:
     total_items, items = await get_active_products(
         session=session,
         page=page,
         size=size,
+        store_name=store_name,
+        tag_name=tag_name,
     )
     return PaginatedResponse[ProductRead](
         total_items=total_items,
@@ -134,6 +149,13 @@ async def create_product_with_relations(
         target_url=str(data.target_url),
         store_id=data.store_id
     )
+
+    tags_list = []
+    if data.tag_ids:
+        tags = await session.scalars(select(Tag).where(Tag.id.in_(data.tag_ids)))
+        tags_list = list(tags)
+        product.tags = tags_list
+
     session.add(product)
 
     try:
@@ -142,24 +164,23 @@ async def create_product_with_relations(
         await session.rollback()
         raise ProductAlreadyExistsError(str(data.target_url))
 
-    if data.tag_ids:
-        tags = await session.scalars(select(Tag).where(Tag.id.in_(data.tag_ids)))
-        tags_list = list(tags)
-
-        if len(tags_list) != len(data.tag_ids):
-            await session.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="One or more tags not found. Transaction fully rolled back."
-            )
-        
-        product.tags = tags_list
+    if data.tag_ids and len(tags_list) != len(data.tag_ids):
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="One or more tags not found. Transaction fully rolled back."
+        )
 
     await session.commit()
+    
+    session.expunge_all()
     
     result = await session.scalar(
         select(Product)
         .where(Product.id == product.id)
-        .options(joinedload(Product.store), selectinload(Product.tags))
+        .options(
+            joinedload(Product.store),
+            selectinload(Product.tags)
+        )
     )
     return result
