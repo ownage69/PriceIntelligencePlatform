@@ -1,3 +1,5 @@
+import logging
+
 from typing import Annotated, TypeAlias
 
 from fastapi import APIRouter, Depends, Query, status
@@ -21,6 +23,8 @@ from app.modules.products.schemas import (
     ProductWithRelationsCreate
 )
 from app.schemas.pagination import PaginatedResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/products", tags=["products"])
 
