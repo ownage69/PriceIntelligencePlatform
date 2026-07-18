@@ -26,6 +26,22 @@ router = APIRouter(prefix="/products", tags=["products"])
 
 DatabaseSession: TypeAlias = Annotated[AsyncSession, Depends(get_db_session)]
 
+class ProductCache:
+
+    def __init__(self) -> None:
+        self._cache: dict[tuple, PaginatedResponse[ProductRead]] = {}
+
+    def get(self, key: tuple) -> PaginatedResponse[ProductRead] | None:
+        return self._cache.get(key)
+
+    def set(self, key: tuple, value: PaginatedResponse[ProductRead]) -> None:
+        self._cache[key] = value
+
+    def invalidate(self) -> None:
+        self._cache.clear()
+
+product_cache = ProductCache()
+
 
 async def get_active_products(
     session: AsyncSession,
@@ -77,8 +93,17 @@ async def create_product(
         await session.rollback()
         raise ProductAlreadyExistsError(target_url)
 
-    await session.refresh(product)
-    return product
+    session.expunge_all()
+    result = await session.scalar(
+        select(Product)
+        .where(Product.id == product.id)
+        .options(
+            joinedload(Product.store),
+            selectinload(Product.tags)
+        )
+    )
+    product_cache.invalidate()
+    return result
 
 
 @router.post("/bulk", response_model=BulkCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -95,7 +120,8 @@ async def bulk_create_products(
         await session.commit()
     except IntegrityError:
         await session.rollback()
-        raise ProductAlreadyExistsError("Один или несколько URL")
+        raise ProductAlreadyExistsError("One or more URLs")
+    product_cache.invalidate()
     return BulkCreateResponse(added_count=len(products))
 
 
@@ -107,6 +133,12 @@ async def list_active_products(
     store_name: Annotated[str | None, Query(description="Filter by store name")] = None,
     tag_name: Annotated[str | None, Query(description="Filter by tag name")] = None,
 ) -> PaginatedResponse[ProductRead]:
+    cache_key = (page, size, store_name, tag_name)
+    
+    cached_result = product_cache.get(cache_key)
+    if cached_result:
+        return cached_result
+
     total_items, items = await get_active_products(
         session=session,
         page=page,
@@ -114,13 +146,17 @@ async def list_active_products(
         store_name=store_name,
         tag_name=tag_name,
     )
-    return PaginatedResponse[ProductRead](
+    
+    response = PaginatedResponse[ProductRead](
         total_items=total_items,
         page=page,
         size=size,
         total_pages=(total_items + size - 1) // size,
         items=[ProductRead.model_validate(item) for item in items],
     )
+    
+    product_cache.set(cache_key, response)
+    return response
 
 
 @router.get("/{product_id}/prices", response_model=list[PriceHistoryRead])
@@ -183,4 +219,5 @@ async def create_product_with_relations(
             selectinload(Product.tags)
         )
     )
+    product_cache.invalidate()
     return result
