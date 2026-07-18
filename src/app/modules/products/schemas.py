@@ -13,12 +13,19 @@ class ProductCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     target_url: AnyHttpUrl
 
+class ProductWithRelationsCreate(ProductCreate):
+    
+    store_id: int | None = None
+    tag_ids: list[int] = Field(default_factory=list)
+
 
 class ProductBulkCreate(BaseModel):
+
     target_urls: list[AnyHttpUrl]
 
 
 class BulkCreateResponse(BaseModel):
+
     added_count: int
 
 

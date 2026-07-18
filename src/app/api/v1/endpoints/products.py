@@ -1,6 +1,7 @@
 from typing import Annotated, TypeAlias
 
 from fastapi import APIRouter, Depends, Query, status
+from fastapi import HTTPException
 from sqlalchemy import desc, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,12 +11,14 @@ from app.api.deps import get_db_session
 from app.core.exceptions import ProductAlreadyExistsError, ProductNotFoundError
 from app.modules.prices.models import PriceHistory
 from app.modules.products.models import Product
+from app.models.catalog import Tag
 from app.modules.products.schemas import (
     BulkCreateResponse,
     PriceHistoryRead,
     ProductBulkCreate,
     ProductCreate,
     ProductRead,
+    ProductWithRelationsCreate
 )
 from app.schemas.pagination import PaginatedResponse
 
@@ -120,3 +123,43 @@ async def list_product_price_history(
         .order_by(desc(PriceHistory.collected_at))
     )
     return list(result)
+
+@router.post("/with-relations", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
+async def create_product_with_relations(
+    data: ProductWithRelationsCreate,
+    session: DatabaseSession,
+) -> Product:
+    product = Product(
+        name=data.name,
+        target_url=str(data.target_url),
+        store_id=data.store_id
+    )
+    session.add(product)
+
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        raise ProductAlreadyExistsError(str(data.target_url))
+
+    if data.tag_ids:
+        tags = await session.scalars(select(Tag).where(Tag.id.in_(data.tag_ids)))
+        tags_list = list(tags)
+
+        if len(tags_list) != len(data.tag_ids):
+            await session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="One or more tags not found. Transaction fully rolled back."
+            )
+        
+        product.tags = tags_list
+
+    await session.commit()
+    
+    result = await session.scalar(
+        select(Product)
+        .where(Product.id == product.id)
+        .options(joinedload(Product.store), selectinload(Product.tags))
+    )
+    return result
