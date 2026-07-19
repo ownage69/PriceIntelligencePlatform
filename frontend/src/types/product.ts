@@ -6,6 +6,8 @@ export interface Product {
   name: string;
   target_url: string;
   is_active: boolean;
+  created_at: string;
+  scrape_interval_minutes: number;
   store: Store | null;
   tags: Tag[];
 }
@@ -20,11 +22,21 @@ export interface PriceHistoryItem {
 export interface ProductCreatePayload {
   name: string;
   target_url: string;
+  scrape_interval_minutes: number;
 }
 
 export interface ProductWithRelationsPayload extends ProductCreatePayload {
   store_id: number | null;
   tag_ids: number[];
+}
+
+export interface ProductUpdatePayload {
+  name?: string;
+  target_url?: string;
+  is_active?: boolean;
+  scrape_interval_minutes?: number;
+  store_id?: number | null;
+  tag_ids?: number[];
 }
 
 export interface ProductBulkCreatePayload {

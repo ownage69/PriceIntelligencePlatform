@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Identity, String, text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Identity, Integer, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -23,6 +24,17 @@ class Product(Base):
         Boolean,
         default=True,
         server_default=text("true"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    scrape_interval_minutes: Mapped[int] = mapped_column(
+        Integer,
+        default=60,
+        server_default=text("60"),
         nullable=False,
     )
     store_id: Mapped[int | None] = mapped_column(

@@ -5,6 +5,7 @@ import { productsApi } from "@/services/products.api";
 import type {
   ProductBulkCreatePayload,
   ProductCreatePayload,
+  ProductUpdatePayload,
   ProductsQuery,
   ProductWithRelationsPayload,
 } from "@/types/product";
@@ -54,6 +55,25 @@ export function useBulkCreateProducts() {
 
   return useMutation({
     mutationFn: (payload: ProductBulkCreatePayload) => productsApi.bulkCreate(payload),
+    onSuccess: invalidateProducts,
+  });
+}
+
+export function useUpdateProduct() {
+  const invalidateProducts = useInvalidateProducts();
+
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: ProductUpdatePayload }) =>
+      productsApi.update(id, payload),
+    onSuccess: invalidateProducts,
+  });
+}
+
+export function useDeleteProduct() {
+  const invalidateProducts = useInvalidateProducts();
+
+  return useMutation({
+    mutationFn: productsApi.remove,
     onSuccess: invalidateProducts,
   });
 }

@@ -15,14 +15,20 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { useCreateProduct, useCreateProductWithRelations } from "@/features/products/hooks/use-products";
+import {
+  useCreateProduct,
+  useCreateProductWithRelations,
+  useUpdateProduct,
+} from "@/features/products/hooks/use-products";
 import { useStores } from "@/features/stores/hooks/use-stores";
 import { useTags } from "@/features/tags/hooks/use-tags";
 import { getErrorMessage } from "@/services/api-error";
+import type { Product } from "@/types/product";
 
 const productSchema = z.object({
   name: z.string().trim().min(1, "Name is required.").max(255, "Maximum 255 characters."),
   target_url: z.string().trim().url("Enter a valid URL."),
+  scrape_interval_minutes: z.coerce.number().int().min(1, "Interval must be at least one minute."),
 });
 
 type ProductFormValues = z.infer<typeof productSchema>;
@@ -36,21 +42,29 @@ type RelationProductFormValues = z.infer<typeof relationProductSchema>;
 
 export function ProductCreateDialog({
   open,
+  product = null,
   onOpenChange,
 }: {
   open: boolean;
+  product?: Product | null;
   onOpenChange: (open: boolean) => void;
 }) {
   const [mode, setMode] = useState<"basic" | "relations">("basic");
+
+  useEffect(() => {
+    if (open) {
+      setMode(product ? "relations" : "basic");
+    }
+  }, [open, product]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add product</DialogTitle>
-          <DialogDescription>Create a standalone product or immediately connect it to a store and tags.</DialogDescription>
+          <DialogTitle>{product ? "Edit product" : "Add product"}</DialogTitle>
+          <DialogDescription>{product ? "Update product data, store, tags and collection interval." : "Create a standalone product or immediately connect it to a store and tags."}</DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-2 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-900">
+        {!product ? <div className="grid grid-cols-2 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-900">
           <Button
             className="justify-center"
             size="sm"
@@ -69,11 +83,11 @@ export function ProductCreateDialog({
             <Tags className="size-3.5" />
             With relations
           </Button>
-        </div>
-        {mode === "basic" ? (
+        </div> : null}
+        {mode === "basic" && !product ? (
           <BasicProductForm onSuccess={() => onOpenChange(false)} />
         ) : (
-          <RelatedProductForm onSuccess={() => onOpenChange(false)} />
+          <RelatedProductForm product={product} onSuccess={() => onOpenChange(false)} />
         )}
       </DialogContent>
     </Dialog>
@@ -84,7 +98,7 @@ function BasicProductForm({ onSuccess }: { onSuccess: () => void }) {
   const createProduct = useCreateProduct();
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
-    defaultValues: { name: "", target_url: "" },
+    defaultValues: { name: "", target_url: "", scrape_interval_minutes: 60 },
   });
 
   const submit = (values: ProductFormValues) => {
@@ -106,6 +120,9 @@ function BasicProductForm({ onSuccess }: { onSuccess: () => void }) {
       <Field label="Product URL" error={form.formState.errors.target_url?.message} hint="The URL will be monitored by the parser.">
         <Input placeholder="https://example.com/product" disabled={createProduct.isPending} {...form.register("target_url")} />
       </Field>
+      <Field label="Collection interval (minutes)" error={form.formState.errors.scrape_interval_minutes?.message} hint="The product is checked after this interval has elapsed.">
+        <Input disabled={createProduct.isPending} min={1} type="number" {...form.register("scrape_interval_minutes")} />
+      </Field>
       <Button className="w-full" disabled={createProduct.isPending} type="submit">
         {createProduct.isPending ? <Spinner /> : <Plus className="size-4" />}
         Add product
@@ -114,20 +131,34 @@ function BasicProductForm({ onSuccess }: { onSuccess: () => void }) {
   );
 }
 
-function RelatedProductForm({ onSuccess }: { onSuccess: () => void }) {
+function RelatedProductForm({ onSuccess, product }: { onSuccess: () => void; product: Product | null }) {
   const { data: stores = [], isLoading: storesLoading } = useStores();
   const { data: tags = [], isLoading: tagsLoading } = useTags();
   const createProduct = useCreateProductWithRelations();
+  const updateProduct = useUpdateProduct();
   const form = useForm<RelationProductFormValues>({
     resolver: zodResolver(relationProductSchema),
-    defaultValues: { name: "", target_url: "", store_id: "", tag_ids: [] },
+    defaultValues: {
+      name: product?.name ?? "",
+      target_url: product?.target_url ?? "",
+      scrape_interval_minutes: product?.scrape_interval_minutes ?? 60,
+      store_id: product?.store?.id ? String(product.store.id) : "",
+      tag_ids: product?.tags.map((tag) => tag.id) ?? [],
+    },
   });
 
   useEffect(() => {
     if (!storesLoading && !tagsLoading) {
+      form.reset({
+        name: product?.name ?? "",
+        target_url: product?.target_url ?? "",
+        scrape_interval_minutes: product?.scrape_interval_minutes ?? 60,
+        store_id: product?.store?.id ? String(product.store.id) : "",
+        tag_ids: product?.tags.map((tag) => tag.id) ?? [],
+      });
       form.setFocus("name");
     }
-  }, [form, storesLoading, tagsLoading]);
+  }, [form, product, storesLoading, tagsLoading]);
 
   const toggleTag = (tagId: number) => {
     const selected = form.getValues("tag_ids");
@@ -139,26 +170,33 @@ function RelatedProductForm({ onSuccess }: { onSuccess: () => void }) {
   };
 
   const submit = (values: RelationProductFormValues) => {
-    createProduct.mutate(
-      {
-        name: values.name,
-        target_url: values.target_url,
-        store_id: values.store_id === "" ? null : Number(values.store_id),
-        tag_ids: values.tag_ids,
+    const payload = {
+      name: values.name,
+      target_url: values.target_url,
+      scrape_interval_minutes: values.scrape_interval_minutes,
+      store_id: values.store_id === "" ? null : Number(values.store_id),
+      tag_ids: values.tag_ids,
+    };
+    const successMessage = product ? "Product updated." : "Product created with relations.";
+    const callbacks = {
+      onSuccess: () => {
+        toast.success(successMessage);
+        form.reset();
+        onSuccess();
       },
-      {
-        onSuccess: () => {
-          toast.success("Product created with relations.");
-          form.reset();
-          onSuccess();
-        },
-        onError: (error) => toast.error(getErrorMessage(error)),
-      },
-    );
+      onError: (error: unknown) => toast.error(getErrorMessage(error)),
+    };
+
+    if (product) {
+      updateProduct.mutate({ id: product.id, payload }, callbacks);
+      return;
+    }
+
+    createProduct.mutate(payload, callbacks);
   };
 
   const selectedTagIds = form.watch("tag_ids");
-  const isBusy = createProduct.isPending || storesLoading || tagsLoading;
+  const isBusy = createProduct.isPending || updateProduct.isPending || storesLoading || tagsLoading;
 
   return (
     <form className="space-y-4" onSubmit={form.handleSubmit(submit)}>
@@ -167,6 +205,9 @@ function RelatedProductForm({ onSuccess }: { onSuccess: () => void }) {
       </Field>
       <Field label="Product URL" error={form.formState.errors.target_url?.message}>
         <Input placeholder="https://example.com/product" disabled={isBusy} {...form.register("target_url")} />
+      </Field>
+      <Field label="Collection interval (minutes)" error={form.formState.errors.scrape_interval_minutes?.message} hint="Only due products are collected by the minute scheduler.">
+        <Input disabled={isBusy} min={1} type="number" {...form.register("scrape_interval_minutes")} />
       </Field>
       <Field label="Store" hint="Optional. You can associate it later in the backend.">
         <select
@@ -210,8 +251,8 @@ function RelatedProductForm({ onSuccess }: { onSuccess: () => void }) {
         </div>
       </Field>
       <Button className="w-full" disabled={isBusy} type="submit">
-        {createProduct.isPending ? <Spinner /> : <Check className="size-4" />}
-        Create with relations
+        {createProduct.isPending || updateProduct.isPending ? <Spinner /> : <Check className="size-4" />}
+        {product ? "Save product" : "Create with relations"}
       </Button>
     </form>
   );

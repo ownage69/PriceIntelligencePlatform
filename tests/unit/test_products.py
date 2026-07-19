@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from sqlalchemy.exc import IntegrityError
@@ -10,12 +12,14 @@ from app.api.v1.endpoints.products import (
     list_active_products,
     list_product_price_history,
     create_product_with_relations,
-    product_cache
+    delete_product,
+    product_cache,
+    update_product,
 )
 from app.modules.products.models import Product
 from app.modules.prices.models import PriceHistory
 from app.models.catalog import Tag
-from app.modules.products.schemas import ProductCreate, ProductBulkCreate, ProductWithRelationsCreate
+from app.modules.products.schemas import ProductBulkCreate, ProductCreate, ProductUpdate, ProductWithRelationsCreate
 from app.core.exceptions import ProductAlreadyExistsError, ProductNotFoundError
 
 @pytest.mark.asyncio
@@ -130,6 +134,8 @@ async def test_list_active_products_uses_cache():
         name="Test", 
         target_url="https://test.com", 
         is_active=True,
+        created_at=datetime.now(timezone.utc),
+        scrape_interval_minutes=60,
         store=None,
         tags=[]
     )
@@ -193,7 +199,7 @@ async def test_create_product_with_relations_missing_tags():
     with pytest.raises(HTTPException):
         await create_product_with_relations(data=data, session=mock_session)
         
-    mock_session.rollback.assert_called_once()
+    mock_session.commit.assert_not_called()
 
 @pytest.mark.asyncio
 async def test_create_product_with_relations_integrity_error():
@@ -201,7 +207,7 @@ async def test_create_product_with_relations_integrity_error():
     mock_session.add = MagicMock()
     mock_session.scalars.return_value = []
     
-    mock_session.flush.side_effect = IntegrityError("...", {}, Exception())
+    mock_session.commit.side_effect = IntegrityError("...", {}, Exception())
     
     data = ProductWithRelationsCreate(name="P1", target_url="http://x.com", store_id=1, tag_ids=[])
     
@@ -209,3 +215,39 @@ async def test_create_product_with_relations_integrity_error():
         await create_product_with_relations(data=data, session=mock_session)
         
     mock_session.rollback.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_update_product_success():
+    mock_session = AsyncMock()
+    product = Product(id=1, name="Before", target_url="https://example.com/old")
+    updated_product = Product(id=1, name="After", target_url="https://example.com/new")
+    mock_session.scalar.side_effect = [product, updated_product]
+
+    result = await update_product(
+        product_id=1,
+        product_in=ProductUpdate(
+            name="After",
+            target_url="https://example.com/new",
+            scrape_interval_minutes=10,
+            tag_ids=[],
+        ),
+        session=mock_session,
+    )
+
+    assert result.name == "After"
+    assert product.scrape_interval_minutes == 10
+    mock_session.commit.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_product_success():
+    mock_session = AsyncMock()
+    product = Product(id=1, name="Product", target_url="https://example.com/product")
+    mock_session.get.return_value = product
+
+    response = await delete_product(product_id=1, session=mock_session)
+
+    assert response.status_code == 204
+    mock_session.delete.assert_awaited_once_with(product)
+    mock_session.commit.assert_called_once()

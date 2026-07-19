@@ -9,7 +9,7 @@ from typing import TypedDict
 
 import httpx
 from pydantic import ValidationError
-from sqlalchemy import insert, select
+from sqlalchemy import func, insert, literal_column, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.db.models
@@ -31,9 +31,27 @@ class CollectionStats(TypedDict):
     failed: int
 
 
-async def _get_active_products(session: AsyncSession) -> Sequence[Product]:
+async def _get_due_active_products(session: AsyncSession) -> Sequence[Product]:
+    last_collected_at = (
+        select(func.max(PriceHistory.collected_at))
+        .where(PriceHistory.product_id == Product.id)
+        .correlate(Product)
+        .scalar_subquery()
+    )
+    one_minute = literal_column("INTERVAL '1 minute'")
     result = await session.scalars(
-        select(Product).where(Product.is_active.is_(True)).order_by(Product.id)
+        select(Product)
+        .where(
+            Product.is_active.is_(True),
+            or_(
+                last_collected_at.is_(None),
+                func.now()
+                >= last_collected_at
+                + Product.scrape_interval_minutes * one_minute,
+            ),
+        )
+        .order_by(Product.id)
+        .with_for_update(skip_locked=True)
     )
     return result.all()
 
@@ -43,7 +61,7 @@ async def _collect_active_product_prices() -> CollectionStats:
     history_rows: list[dict[str, int | Decimal | datetime]] = []
 
     async with async_session_factory() as session:
-        products = await _get_active_products(session)
+        products = await _get_due_active_products(session)
         timeout = httpx.Timeout(15.0, connect=5.0)
 
         async with httpx.AsyncClient(

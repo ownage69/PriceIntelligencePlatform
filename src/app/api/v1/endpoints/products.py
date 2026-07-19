@@ -2,7 +2,7 @@ import logging
 
 from typing import Annotated, TypeAlias
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi import HTTPException
 from sqlalchemy import desc, func, select
 from sqlalchemy.exc import IntegrityError
@@ -20,6 +20,7 @@ from app.modules.products.schemas import (
     ProductBulkCreate,
     ProductCreate,
     ProductRead,
+    ProductUpdate,
     ProductWithRelationsCreate
 )
 from app.schemas.pagination import PaginatedResponse
@@ -45,6 +46,20 @@ class ProductCache:
         self._cache.clear()
 
 product_cache = ProductCache()
+
+
+async def get_product_with_relations(
+    session: AsyncSession,
+    product_id: int,
+) -> Product | None:
+    return await session.scalar(
+        select(Product)
+        .where(Product.id == product_id)
+        .options(
+            joinedload(Product.store),
+            selectinload(Product.tags),
+        )
+    )
 
 
 async def get_active_products(
@@ -88,7 +103,11 @@ async def create_product(
 ) -> Product:
     target_url = str(product_in.target_url)
 
-    product = Product(name=product_in.name, target_url=target_url)
+    product = Product(
+        name=product_in.name,
+        target_url=target_url,
+        scrape_interval_minutes=product_in.scrape_interval_minutes,
+    )
     session.add(product)
 
     try:
@@ -97,15 +116,7 @@ async def create_product(
         await session.rollback()
         raise ProductAlreadyExistsError(target_url)
 
-    session.expunge_all()
-    result = await session.scalar(
-        select(Product)
-        .where(Product.id == product.id)
-        .options(
-            joinedload(Product.store),
-            selectinload(Product.tags)
-        )
-    )
+    result = await get_product_with_relations(session, product.id)
     product_cache.invalidate()
     return result
 
@@ -179,6 +190,61 @@ async def list_product_price_history(
     )
     return list(result)
 
+
+@router.put("/{product_id}", response_model=ProductRead)
+async def update_product(
+    product_id: int,
+    product_in: ProductUpdate,
+    session: DatabaseSession,
+) -> Product:
+    product = await get_product_with_relations(session, product_id)
+    if product is None:
+        raise ProductNotFoundError(product_id)
+
+    updates = product_in.model_dump(exclude_unset=True)
+    tag_ids = updates.pop("tag_ids", None)
+
+    if tag_ids is not None:
+        tags = await session.scalars(select(Tag).where(Tag.id.in_(tag_ids)))
+        product_tags = list(tags)
+        if len(product_tags) != len(set(tag_ids)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="One or more tags not found.",
+            )
+        product.tags = product_tags
+
+    if "target_url" in updates:
+        updates["target_url"] = str(updates["target_url"])
+
+    for field, value in updates.items():
+        setattr(product, field, value)
+
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise ProductAlreadyExistsError(str(updates.get("target_url", product.target_url)))
+
+    result = await get_product_with_relations(session, product_id)
+    product_cache.invalidate()
+    return result
+
+
+@router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_product(
+    product_id: int,
+    session: DatabaseSession,
+) -> Response:
+    product = await session.get(Product, product_id)
+    if product is None:
+        raise ProductNotFoundError(product_id)
+
+    await session.delete(product)
+    await session.commit()
+    product_cache.invalidate()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
 @router.post("/with-relations", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
 async def create_product_with_relations(
     data: ProductWithRelationsCreate,
@@ -187,41 +253,29 @@ async def create_product_with_relations(
     product = Product(
         name=data.name,
         target_url=str(data.target_url),
-        store_id=data.store_id
+        store_id=data.store_id,
+        scrape_interval_minutes=data.scrape_interval_minutes,
     )
 
     tags_list = []
     if data.tag_ids:
         tags = await session.scalars(select(Tag).where(Tag.id.in_(data.tag_ids)))
         tags_list = list(tags)
+        if len(tags_list) != len(set(data.tag_ids)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="One or more tags not found.",
+            )
         product.tags = tags_list
 
     session.add(product)
 
     try:
-        await session.flush()
+        await session.commit()
     except IntegrityError:
         await session.rollback()
         raise ProductAlreadyExistsError(str(data.target_url))
 
-    if data.tag_ids and len(tags_list) != len(data.tag_ids):
-        await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="One or more tags not found. Transaction fully rolled back."
-        )
-
-    await session.commit()
-    
-    session.expunge_all()
-    
-    result = await session.scalar(
-        select(Product)
-        .where(Product.id == product.id)
-        .options(
-            joinedload(Product.store),
-            selectinload(Product.tags)
-        )
-    )
+    result = await get_product_with_relations(session, product.id)
     product_cache.invalidate()
     return result

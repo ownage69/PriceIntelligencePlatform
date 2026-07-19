@@ -22,8 +22,8 @@ celery_app.conf.update(
 )
 
 celery_app.conf.beat_schedule = {
-    "collect-prices-every-hour": {
+    "collect-due-prices-every-minute": {
         "task": "price_collection.collect_active_product_prices",
-        "schedule": crontab(minute=0), 
+        "schedule": crontab(minute="*"),
     },
 }

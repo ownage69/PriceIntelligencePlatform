@@ -5,6 +5,7 @@ import type {
   Product,
   ProductBulkCreatePayload,
   ProductCreatePayload,
+  ProductUpdatePayload,
   ProductsQuery,
   ProductWithRelationsPayload,
 } from "@/types/product";
@@ -29,6 +30,15 @@ export const productsApi = {
   async bulkCreate(payload: ProductBulkCreatePayload): Promise<BulkCreateResponse> {
     const { data } = await apiClient.post<BulkCreateResponse>("/products/bulk", payload);
     return data;
+  },
+
+  async update(id: number, payload: ProductUpdatePayload): Promise<Product> {
+    const { data } = await apiClient.put<Product>(`/products/${id}`, payload);
+    return data;
+  },
+
+  async remove(id: number): Promise<void> {
+    await apiClient.delete(`/products/${id}`);
   },
 
   async getPriceHistory(productId: number): Promise<PriceHistoryItem[]> {

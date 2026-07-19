@@ -1,7 +1,9 @@
-import { ExternalLink, FilePlus2, History, Plus, Search, SlidersHorizontal } from "lucide-react";
+import { ExternalLink, FilePlus2, History, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
 
+import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { DataTable, type DataTableColumn } from "@/components/common/data-table";
 import { ErrorState } from "@/components/common/error-state";
 import { PageHeader } from "@/components/common/page-header";
@@ -12,8 +14,9 @@ import { buttonVariants } from "@/components/ui/button-variants";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProductCreateDialog } from "@/features/products/components/product-create-dialog";
-import { useProducts } from "@/features/products/hooks/use-products";
-import { getDomain } from "@/lib/utils";
+import { useDeleteProduct, useProducts } from "@/features/products/hooks/use-products";
+import { formatDate, getDomain } from "@/lib/utils";
+import { getErrorMessage } from "@/services/api-error";
 import type { Product } from "@/types/product";
 
 type SortMode = "name-asc" | "name-desc" | "store-asc";
@@ -25,7 +28,9 @@ export function ProductsPage() {
   const [tagName, setTagName] = useState("");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortMode>("name-asc");
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [formProduct, setFormProduct] = useState<Product | null | undefined>(undefined);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const deleteProduct = useDeleteProduct();
   const deferredStoreName = useDeferredValue(storeName.trim());
   const deferredTagName = useDeferredValue(tagName.trim());
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
@@ -97,17 +102,18 @@ export function ProductsPage() {
     {
       id: "created",
       header: "Created at",
-      cell: () => <span className="text-zinc-400" title="The current API does not expose a product creation timestamp.">—</span>,
+      cell: (product) => <span className="whitespace-nowrap text-zinc-600 dark:text-zinc-400">{formatDate(product.created_at)}</span>,
     },
     {
       id: "actions",
       header: "Actions",
       className: "text-right",
       cell: (product) => (
-        <Link className="inline-flex items-center gap-1 text-xs font-medium text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50" to={`/products/${product.id}/history`}>
-          <History className="size-3.5" />
-          History
-        </Link>
+        <div className="flex justify-end gap-1">
+          <Button aria-label={`Edit ${product.name}`} size="icon" variant="ghost" onClick={() => setFormProduct(product)}><Pencil className="size-4" /></Button>
+          <Link aria-label={`View ${product.name} price history`} className="inline-flex size-9 items-center justify-center rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-900" to={`/products/${product.id}/history`}><History className="size-4" /></Link>
+          <Button aria-label={`Delete ${product.name}`} size="icon" variant="ghost" onClick={() => setProductToDelete(product)}><Trash2 className="size-4 text-red-600 dark:text-red-400" /></Button>
+        </div>
       ),
     },
   ];
@@ -120,7 +126,7 @@ export function ProductsPage() {
         actions={
           <>
             <Link className={buttonVariants({ variant: "outline" })} to="/products/import"><FilePlus2 className="size-4" />Bulk import</Link>
-            <Button onClick={() => setCreateDialogOpen(true)}><Plus className="size-4" />Add product</Button>
+            <Button onClick={() => setFormProduct(null)}><Plus className="size-4" />Add product</Button>
           </>
         }
       />
@@ -167,7 +173,21 @@ export function ProductsPage() {
           <Pagination page={page} size={size} totalItems={products.data?.total_items ?? 0} totalPages={products.data?.total_pages ?? 0} onPageChange={setPage} />
         </>
       )}
-      <ProductCreateDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
+      <ProductCreateDialog open={formProduct !== undefined} product={formProduct ?? null} onOpenChange={(open) => !open && setFormProduct(undefined)} />
+      <ConfirmDialog
+        description={`The product “${productToDelete?.name ?? ""}” and its saved price history will be permanently deleted.`}
+        isPending={deleteProduct.isPending}
+        open={productToDelete !== null}
+        title="Delete product?"
+        onConfirm={() => {
+          if (!productToDelete) return;
+          deleteProduct.mutate(productToDelete.id, {
+            onSuccess: () => { toast.success("Product deleted."); setProductToDelete(null); },
+            onError: (error) => toast.error(getErrorMessage(error)),
+          });
+        }}
+        onOpenChange={(open) => !open && setProductToDelete(null)}
+      />
     </div>
   );
 }
