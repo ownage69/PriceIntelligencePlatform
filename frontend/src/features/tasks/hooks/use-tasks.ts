@@ -6,7 +6,7 @@ import { tasksApi } from "@/services/tasks.api";
 import type { TrackedTask } from "@/types/task";
 
 const TASKS_STORAGE_KEY = "price-intelligence.tracked-tasks";
-const TERMINAL_STATUSES = new Set(["SUCCESS", "FAILURE", "REVOKED"]);
+const TERMINAL_STATUSES = new Set(["SUCCESS", "FAILURE", "REVOKED", "IGNORED"]);
 
 function readTrackedTasks(): TrackedTask[] {
   try {
@@ -18,7 +18,7 @@ function readTrackedTasks(): TrackedTask[] {
 }
 
 function saveTrackedTasks(tasks: TrackedTask[]): void {
-  window.localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(tasks.slice(0, 10)));
+  window.localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(tasks.slice(0, 15)));
 }
 
 export function isTaskFinished(status: string): boolean {
@@ -32,9 +32,9 @@ export function useTrackedTasks() {
     saveTrackedTasks(trackedTasks);
   }, [trackedTasks]);
 
-  const addTask = useCallback((taskId: string) => {
+  const addTask = useCallback((taskId: string, productName: string) => {
     setTrackedTasks((current) => [
-      { task_id: taskId, status: "PENDING", startedAt: new Date().toISOString() },
+      { task_id: taskId, status: "PENDING", startedAt: new Date().toISOString(), productName, message: null },
       ...current.filter((task) => task.task_id !== taskId),
     ]);
   }, []);
@@ -42,20 +42,26 @@ export function useTrackedTasks() {
   const updateTask = useCallback((nextTask: TrackedTask) => {
     setTrackedTasks((current) => {
       const currentTask = current.find((task) => task.task_id === nextTask.task_id);
-
-      if (currentTask?.status === nextTask.status && currentTask.startedAt === nextTask.startedAt) {
+      if (currentTask?.status === nextTask.status && currentTask?.message === nextTask.message) {
         return current;
       }
-
       return current.map((task) => (task.task_id === nextTask.task_id ? nextTask : task));
     });
   }, []);
 
-  return { trackedTasks, addTask, updateTask };
+  const clearHistory = useCallback(() => {
+    setTrackedTasks([]);
+  }, []);
+
+  return { trackedTasks, addTask, updateTask, clearHistory };
 }
 
 export function useStartCollection() {
-  return useMutation({ mutationFn: tasksApi.collect });
+  return useMutation({ mutationFn: (productId: number) => tasksApi.collect(productId) });
+}
+
+export function useRevokeTask() {
+  return useMutation({ mutationFn: tasksApi.revoke });
 }
 
 export function useTaskStatus(taskId: string | null) {
@@ -65,7 +71,7 @@ export function useTaskStatus(taskId: string | null) {
     enabled: Boolean(taskId),
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status && isTaskFinished(status) ? false : 2_500;
+      return status && isTaskFinished(status) ? false : 1_500;
     },
   });
 }

@@ -42,7 +42,7 @@ class PriceParserFactory:
                 return PlaywrightPriceParser(
                     url=url,
                     client=client,
-                    price_selector=".a-price .a-offscreen",
+                    price_selector=".priceToPay, .apexPriceToPay",
                     currency="USD"
                 )
 
