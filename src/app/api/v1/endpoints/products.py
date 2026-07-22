@@ -1,5 +1,4 @@
 import logging
-
 from typing import Annotated, TypeAlias
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -11,9 +10,9 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from app.api.deps import get_db_session
 from app.core.exceptions import ProductAlreadyExistsError, ProductNotFoundError
+from app.models.catalog import Store, Tag
 from app.modules.prices.models import PriceHistory
 from app.modules.products.models import Product
-from app.models.catalog import Store, Tag
 from app.modules.products.schemas import (
     BulkCreateResponse,
     PriceHistoryRead,
@@ -21,18 +20,16 @@ from app.modules.products.schemas import (
     ProductCreate,
     ProductRead,
     ProductUpdate,
-    ProductWithRelationsCreate
+    ProductWithRelationsCreate,
 )
 from app.schemas.pagination import PaginatedResponse
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/products", tags=["products"])
-
 DatabaseSession: TypeAlias = Annotated[AsyncSession, Depends(get_db_session)]
 
-class ProductCache:
 
+class ProductCache:
     def __init__(self) -> None:
         self._cache: dict[tuple, PaginatedResponse[ProductRead]] = {}
 
@@ -57,6 +54,7 @@ async def get_product_with_relations(
         .where(Product.id == product_id)
         .options(
             joinedload(Product.store),
+            joinedload(Product.category),
             selectinload(Product.tags),
         )
     )
@@ -68,6 +66,7 @@ async def get_active_products(
     size: int = 50,
     store_name: str | None = None,
     tag_name: str | None = None,
+    category_id: int | None = None,
 ) -> tuple[int, list[Product]]:
     stmt = select(Product).where(Product.is_active.is_(True))
     count_stmt = select(func.count(Product.id.distinct())).where(Product.is_active.is_(True))
@@ -80,12 +79,17 @@ async def get_active_products(
         stmt = stmt.join(Product.tags).where(Tag.name.ilike(f"%{tag_name}%"))
         count_stmt = count_stmt.join(Product.tags).where(Tag.name.ilike(f"%{tag_name}%"))
 
-    total_items = await session.scalar(count_stmt)
+    if category_id:
+        stmt = stmt.where(Product.category_id == category_id)
+        count_stmt = count_stmt.where(Product.category_id == category_id)
 
+    total_items = await session.scalar(count_stmt)
     offset = (page - 1) * size
+    
     items = await session.scalars(
         stmt.options(
             joinedload(Product.store),
+            joinedload(Product.category),
             selectinload(Product.tags)
         )
         .distinct()
@@ -97,10 +101,7 @@ async def get_active_products(
 
 
 @router.post("/", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
-async def create_product(
-    product_in: ProductCreate,
-    session: DatabaseSession,
-) -> Product:
+async def create_product(product_in: ProductCreate, session: DatabaseSession) -> Product:
     target_url = str(product_in.target_url)
 
     product = Product(
@@ -122,10 +123,7 @@ async def create_product(
 
 
 @router.post("/bulk", response_model=BulkCreateResponse, status_code=status.HTTP_201_CREATED)
-async def bulk_create_products(
-    data: ProductBulkCreate,
-    session: DatabaseSession,
-) -> BulkCreateResponse:
+async def bulk_create_products(data: ProductBulkCreate, session: DatabaseSession) -> BulkCreateResponse:
     products = [
         Product(name=str(target_url), target_url=str(target_url))
         for target_url in data.target_urls
@@ -136,6 +134,7 @@ async def bulk_create_products(
     except IntegrityError:
         await session.rollback()
         raise ProductAlreadyExistsError("One or more URLs")
+    
     product_cache.invalidate()
     return BulkCreateResponse(added_count=len(products))
 
@@ -147,8 +146,9 @@ async def list_active_products(
     size: Annotated[int, Query(ge=1, le=100, description="Page size")] = 50,
     store_name: Annotated[str | None, Query(description="Filter by store name")] = None,
     tag_name: Annotated[str | None, Query(description="Filter by tag name")] = None,
+    category_id: Annotated[int | None, Query(description="Filter by category ID")] = None,
 ) -> PaginatedResponse[ProductRead]:
-    cache_key = (page, size, store_name, tag_name)
+    cache_key = (page, size, store_name, tag_name, category_id)
     
     cached_result = product_cache.get(cache_key)
     if cached_result:
@@ -160,6 +160,7 @@ async def list_active_products(
         size=size,
         store_name=store_name,
         tag_name=tag_name,
+        category_id=category_id,
     )
     
     response = PaginatedResponse[ProductRead](
@@ -175,10 +176,7 @@ async def list_active_products(
 
 
 @router.get("/{product_id}/prices", response_model=list[PriceHistoryRead])
-async def list_product_price_history(
-    product_id: int,
-    session: DatabaseSession,
-) -> list[PriceHistory]:
+async def list_product_price_history(product_id: int, session: DatabaseSession) -> list[PriceHistory]:
     product = await session.scalar(select(Product).where(Product.id == product_id))
     if product is None:
         raise ProductNotFoundError(product_id)
@@ -232,10 +230,7 @@ async def update_product(
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_product(
-    product_id: int,
-    session: DatabaseSession,
-) -> Response:
+async def delete_product(product_id: int, session: DatabaseSession) -> Response:
     product = await session.get(Product, product_id)
     if product is None:
         raise ProductNotFoundError(product_id)
@@ -244,6 +239,7 @@ async def delete_product(
     await session.commit()
     product_cache.invalidate()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
 
 @router.post("/with-relations", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
 async def create_product_with_relations(
@@ -254,6 +250,7 @@ async def create_product_with_relations(
         name=data.name,
         target_url=str(data.target_url),
         store_id=data.store_id,
+        category_id=data.category_id,
         scrape_interval_minutes=data.scrape_interval_minutes,
     )
 

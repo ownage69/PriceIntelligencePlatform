@@ -83,6 +83,24 @@ class ErrorResponse(BaseModel):
     success: Literal[False] = False
     error: ErrorBody
 
+class CategoryAlreadyExistsError(BaseAPIException):
+    status_code: int = status.HTTP_409_CONFLICT
+
+    def __init__(self, name: str) -> None:
+        super().__init__(
+            message="A category with this name already exists.",
+            details={"name": name},
+        )
+
+
+class CategoryNotFoundError(BaseAPIException):
+    status_code: int = status.HTTP_404_NOT_FOUND
+
+    def __init__(self, category_id: int) -> None:
+        super().__init__(
+            message="Category not found.",
+            details={"category_id": category_id},
+        )
 
 def _error_response(
     *,
@@ -165,3 +183,4 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
     app.add_exception_handler(SQLAlchemyError, sqlalchemy_exception_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)
+

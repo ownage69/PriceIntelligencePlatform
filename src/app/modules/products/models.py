@@ -10,6 +10,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.catalog import Store, Tag
+    from app.models.category import Category
     from app.modules.prices.models import PriceHistory
 
 
@@ -41,6 +42,10 @@ class Product(Base):
         ForeignKey("stores.id", ondelete="SET NULL"),
         nullable=True,
     )
+    category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categories.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     price_history: Mapped[list[PriceHistory]] = relationship(
         "PriceHistory",
@@ -49,6 +54,7 @@ class Product(Base):
         passive_deletes=True,
     )
     store: Mapped[Store | None] = relationship("Store", back_populates="products")
+    category: Mapped[Category | None] = relationship("Category", back_populates="products")
     tags: Mapped[list[Tag]] = relationship(
         "Tag",
         secondary="product_tags",

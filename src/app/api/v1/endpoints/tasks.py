@@ -41,7 +41,6 @@ async def start_single_collection(
 async def get_task_status(task_id: str) -> TaskStatusResponse:
     task = AsyncResult(task_id, app=celery_app)
     
-    # Извлекаем наше кастомное сообщение из меты задачи
     message = None
     if isinstance(task.info, dict):
         message = task.info.get("message")
@@ -53,6 +52,5 @@ async def get_task_status(task_id: str) -> TaskStatusResponse:
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_task(task_id: str) -> Response:
-    # Жесткое прерывание зависшей задачи
     celery_app.control.revoke(task_id, terminate=True)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
