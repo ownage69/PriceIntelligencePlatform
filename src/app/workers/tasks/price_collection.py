@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 import app.db.models
 from app.core.config import settings
+from app.core.telegram import send_telegram_notification 
 from app.modules.prices.models import PriceHistory
 from app.modules.products.models import Product
 from app.workers.celery_app import celery_app
@@ -62,6 +63,16 @@ async def _collect_single_product_price(task, product_id: int) -> dict:
                     collected_at=parsed_price.collected_at,
                 )
                 session.add(history_row)
+                
+                if product.target_price and parsed_price.price <= product.target_price:
+                    msg = (
+                        f"🔥 <b>The price has reached the target</b>\n\n"
+                        f"Product: <a href='{product.target_url}'>{product.name}</a>\n"
+                        f"Current price: <b>{parsed_price.price} {parsed_price.currency}</b>\n"
+                        f"Desired price: {product.target_price} {parsed_price.currency}"
+                    )
+                    await send_telegram_notification(msg)
+
                 await session.commit()
 
                 success_msg = f"Success! The price has been saved: {parsed_price.price} {parsed_price.currency}"

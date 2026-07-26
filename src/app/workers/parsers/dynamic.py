@@ -28,10 +28,16 @@ class PlaywrightPriceParser(CssSelectorPriceParser):
                 page = await context.new_page()
                 await stealth_async(page)
                 
+                os.makedirs("/app/debug_screenshots", exist_ok=True)
+                domain = urlparse(self._url).netloc.replace("www.", "")
+                
                 try:
-                    await page.goto(self._url, wait_until="domcontentloaded", timeout=15000)
+                    await page.goto(self._url, wait_until="domcontentloaded", timeout=30000)
                 except Exception:
                     pass
+                    
+                await page.screenshot(path=f"/app/debug_screenshots/{domain}_step_1_loaded.png")
+                logger.info(f"Step 1: Page {self._url} loaded. Screenshot saved.")
                     
                 if "amazon.com" in self._url.lower():
                     try:
@@ -47,8 +53,10 @@ class PlaywrightPriceParser(CssSelectorPriceParser):
                         await page.locator("[name='glowDoneButton']").click(force=True, timeout=5000)
                         
                         await page.wait_for_timeout(2000)
-                        await page.reload(wait_until="domcontentloaded", timeout=15000)
+                        await page.reload(wait_until="domcontentloaded", timeout=30000)
                         await page.wait_for_timeout(2000)
+                        
+                        await page.screenshot(path=f"/app/debug_screenshots/{domain}_step_1.5_amazon_region.png")
                     except Exception as e:
                         logger.info(f"The region change was missed or failed: {e}")
 
@@ -57,42 +65,54 @@ class PlaywrightPriceParser(CssSelectorPriceParser):
                 raw_texts = []
                 
                 try:
-                    await locator.first.wait_for(state="attached", timeout=10000)
+                    await locator.first.wait_for(state="attached", timeout=30000)
                     
-                    for _ in range(10):
+                    await page.screenshot(path=f"/app/debug_screenshots/{domain}_step_2_locator_attached.png")
+                    logger.info(f"Step 2: Selector '{self._price_selector}' found on the page. Screenshot saved.")
+                    
+                    for i in range(10):
                         raw_texts = await locator.all_inner_texts()
                         
                         if not any(t.strip() for t in raw_texts):
                             raw_texts = await locator.all_text_contents()
+                        
+                        logger.info(f"Extraction attempt {i+1}. Found raw texts: {raw_texts}")
                             
                         for raw_text in raw_texts:
                             if not raw_text or not raw_text.strip():
                                 continue
                             
-                            clean_string = re.sub(r'[^\d,.]', '', raw_text).strip(',.')
+                            text_fixed = raw_text.replace('\n,', ',').replace('\n.', '.')
                             
-                            while '..' in clean_string:
-                                clean_string = clean_string.replace('..', '.')
+                            match = re.search(r'(\d+(?:[\s\xa0\u202f\u200b\n]+\d+)*(?:[.,]\d{1,2})?)', text_fixed)
+                            
+                            if match:
+                                clean_string = re.sub(r'[^\d,.]', '', match.group(1))
                                 
-                            if any(char.isdigit() for char in clean_string):
                                 if ',' in clean_string and '.' in clean_string:
                                     clean_string = clean_string.replace(',', '')
                                 else:
                                     clean_string = clean_string.replace(',', '.')
                                     
-                                clean_price = Decimal(clean_string)
-                                break
+                                try:
+                                    clean_price = Decimal(clean_string)
+                                    if clean_price > Decimal("0"):
+                                        break
+                                except Exception as e:
+                                    logger.warning(f"Couldn't convert {clean_string} into Decimal: {e}")
+                                    continue
                         
                         if clean_price is not None:
+                            await page.screenshot(path=f"/app/debug_screenshots/{domain}_step_3_price_parsed.png")
+                            logger.info(f"Step 3: Price {clean_price} successfully parsed. Screenshot saved.")
                             break 
                             
                         await page.wait_for_timeout(1000)
                         
-                except Exception:
-                    os.makedirs("/app/debug_screenshots", exist_ok=True)
-                    domain = urlparse(self._url).netloc.replace("www.", "")
+                except Exception as e:
                     screenshot_path = f"/app/debug_screenshots/error_{domain}_final.png"
                     await page.screenshot(path=screenshot_path)
+                    logger.error(f"Error when searching for an item: {e}")
                     raise PriceParserError(f"The price was not found. Saved debug screenshot: error_{domain}_final.png")
 
                 await browser.close()

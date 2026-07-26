@@ -34,7 +34,7 @@ class PriceParserFactory:
                 return PlaywrightPriceParser(
                     url=url,
                     client=client,
-                    price_selector="text=ƃ",
+                    price_selector="[class^='priceBlockPriceGroup'], .price-block__final-price, ins.price-block__final-price, .price-block__wallet-price, div.price-block, .price-wrap",
                     currency="BYN"
                 )
                 
@@ -45,5 +45,14 @@ class PriceParserFactory:
                     price_selector=".priceToPay, .apexPriceToPay",
                     currency="USD"
                 )
+                
+            if host_lower in {"onliner.by", "www.onliner.by", "catalog.onliner.by"}:
+                return PlaywrightPriceParser(
+                    url=url,
+                    client=client,
+                    price_selector="[data-gtm-selector='fi_location_buybox'], .bbx, .product-aside__price--primary, .offers-description__price-value",
+                    currency="BYN"
+                )
 
         raise UnsupportedSourceError(f"No parser is registered for URL: {url}")
+    
