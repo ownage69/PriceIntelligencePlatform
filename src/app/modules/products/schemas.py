@@ -14,6 +14,7 @@ class ProductCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     target_url: AnyHttpUrl
     scrape_interval_minutes: int = Field(default=60, ge=1)
+    target_price: Decimal | None = Field(default=None, gt=Decimal("0"), max_digits=12, decimal_places=2)
 
 
 class ProductUpdate(BaseModel):
@@ -23,6 +24,7 @@ class ProductUpdate(BaseModel):
     target_url: AnyHttpUrl | None = None
     is_active: bool | None = None
     scrape_interval_minutes: int | None = Field(default=None, ge=1)
+    target_price: Decimal | None = Field(default=None, gt=Decimal("0"), max_digits=12, decimal_places=2)
     store_id: int | None = None
     category_id: int | None = None
     tag_ids: list[int] | None = None
@@ -51,6 +53,7 @@ class ProductRead(BaseModel):
     is_active: bool
     created_at: datetime
     scrape_interval_minutes: int
+    target_price: Decimal | None
     store: StoreRead | None = None
     category: CategoryRead | None = None
     tags: list[TagRead] = Field(default_factory=list)

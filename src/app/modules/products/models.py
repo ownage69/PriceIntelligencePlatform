@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Identity, Integer, String, func, text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Identity, Integer, Numeric, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -37,6 +38,10 @@ class Product(Base):
         default=60,
         server_default=text("60"),
         nullable=False,
+    )
+    target_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), 
+        nullable=True
     )
     store_id: Mapped[int | None] = mapped_column(
         ForeignKey("stores.id", ondelete="SET NULL"),
