@@ -5,10 +5,9 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-
 async def send_telegram_notification(message: str) -> None:
     if not settings.telegram_bot_token or not settings.telegram_chat_id:
-        logger.debug("Telegram bot token or chat ID is not set. Skipping notification.")
+        logger.warning("Telegram bot token or chat ID is not set. Skipping notification.")
         return
 
     url = f"https://api.telegram.org/bot{settings.telegram_bot_token.get_secret_value()}/sendMessage"

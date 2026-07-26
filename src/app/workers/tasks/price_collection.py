@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 import app.db.models
 from app.core.config import settings
-from app.core.telegram import send_telegram_notification 
+from app.core.telegram import send_telegram_notification  
 from app.modules.prices.models import PriceHistory
 from app.modules.products.models import Product
 from app.workers.celery_app import celery_app

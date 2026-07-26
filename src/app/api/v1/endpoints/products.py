@@ -108,6 +108,7 @@ async def create_product(product_in: ProductCreate, session: DatabaseSession) ->
         name=product_in.name,
         target_url=target_url,
         scrape_interval_minutes=product_in.scrape_interval_minutes,
+        target_price=product_in.target_price,
     )
     session.add(product)
 
@@ -252,6 +253,7 @@ async def create_product_with_relations(
         store_id=data.store_id,
         category_id=data.category_id,
         scrape_interval_minutes=data.scrape_interval_minutes,
+        target_price=data.target_price,
     )
 
     tags_list = []
