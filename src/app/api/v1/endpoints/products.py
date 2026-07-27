@@ -1,3 +1,7 @@
+import csv
+import io
+from fastapi.responses import StreamingResponse
+
 import logging
 from typing import Annotated, TypeAlias
 
@@ -176,6 +180,61 @@ async def list_active_products(
     
     product_cache.set(cache_key, response)
     return response
+
+
+@router.get("/export/csv", summary="Export products to CSV")
+async def export_products_csv(session: DatabaseSession) -> StreamingResponse:
+    async def iter_csv():
+        output = io.StringIO()
+        writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
+        
+        writer.writerow(["ID", "Product", "Link", "Target Price (BYN)", "Current Price (BYN)"])
+        
+        yield output.getvalue().encode("utf-8-sig")
+        output.seek(0)
+        output.truncate(0)
+
+        latest_price_subquery = (
+            select(func.max(PriceHistory.collected_at))
+            .where(PriceHistory.product_id == Product.id)
+            .correlate(Product)
+            .scalar_subquery()
+        )
+
+        stmt = (
+            select(Product, PriceHistory.price)
+            .outerjoin(
+                PriceHistory,
+                (PriceHistory.product_id == Product.id) &
+                (PriceHistory.collected_at == latest_price_subquery)
+            )
+            .where(Product.is_active.is_(True))
+            .order_by(Product.id)
+        )
+        result = await session.execute(stmt)
+
+        for product, current_price in result:
+            writer.writerow([
+                product.id,
+                product.name,
+                product.target_url,
+                product.target_price if product.target_price is not None else "Not specified",
+                current_price if current_price is not None else "No data"
+            ])
+            yield output.getvalue().encode("utf-8")
+            output.seek(0)
+            output.truncate(0)
+
+    headers = {
+        "Content-Disposition": 'attachment; filename="price_intelligence_report.csv"',
+        "Content-Type": "text/csv; charset=utf-8",
+    }
+
+    return StreamingResponse(
+        iter_csv(),
+        media_type="text/csv; charset=utf-8",  
+        headers=headers,
+    )
 
 
 @router.get("/{product_id}/prices", response_model=list[PriceHistoryRead])
