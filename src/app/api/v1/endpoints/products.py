@@ -22,6 +22,8 @@ from app.modules.products.schemas import (
     ProductUpdate,
     ProductWithRelationsCreate,
 )
+from app.modules.analytics.schemas import ProductAnalyticsResponse
+from app.modules.analytics.service import analytics_service
 from app.schemas.pagination import PaginatedResponse
 
 logger = logging.getLogger(__name__)
@@ -188,6 +190,19 @@ async def list_product_price_history(product_id: int, session: DatabaseSession) 
         .order_by(desc(PriceHistory.collected_at))
     )
     return list(result)
+
+
+@router.get("/{product_id}/analytics", response_model=ProductAnalyticsResponse)
+async def get_product_analytics(product_id: int, session: DatabaseSession) -> dict:
+    product = await session.get(Product, product_id)
+    if product is None:
+        raise ProductNotFoundError(product_id)
+
+    analytics_data = await analytics_service.get_product_price_dynamics(
+        session=session, 
+        product_id=product_id
+    )
+    return analytics_data
 
 
 @router.put("/{product_id}", response_model=ProductRead)
