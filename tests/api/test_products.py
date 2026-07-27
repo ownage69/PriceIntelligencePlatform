@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -15,6 +16,8 @@ from app.api.v1.endpoints.products import (
     delete_product,
     product_cache,
     update_product,
+    get_product_analytics,
+    export_products_csv
 )
 from app.modules.products.models import Product
 from app.modules.prices.models import PriceHistory
@@ -216,7 +219,6 @@ async def test_create_product_with_relations_integrity_error():
         
     mock_session.rollback.assert_called_once()
 
-
 @pytest.mark.asyncio
 async def test_update_product_success():
     mock_session = AsyncMock()
@@ -239,7 +241,6 @@ async def test_update_product_success():
     assert product.scrape_interval_minutes == 10
     mock_session.commit.assert_called_once()
 
-
 @pytest.mark.asyncio
 async def test_delete_product_success():
     mock_session = AsyncMock()
@@ -250,4 +251,86 @@ async def test_delete_product_success():
 
     assert response.status_code == 204
     mock_session.delete.assert_awaited_once_with(product)
+    mock_session.commit.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_get_product_analytics_success():
+    mock_session = AsyncMock()
+    mock_session.get.return_value = Product(id=1, name="P1")
+    
+    with patch("app.api.v1.endpoints.products.analytics_service.get_product_price_dynamics") as mock_analytics:
+        mock_analytics.return_value = {"current_price": Decimal("100"), "min_price": Decimal("50")}
+        res = await get_product_analytics(product_id=1, session=mock_session)
+        assert res["current_price"] == Decimal("100")
+        mock_analytics.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_get_product_analytics_not_found():
+    mock_session = AsyncMock()
+    mock_session.get.return_value = None
+    with pytest.raises(ProductNotFoundError):
+        await get_product_analytics(product_id=1, session=mock_session)
+
+@pytest.mark.asyncio
+async def test_export_products_csv():
+    mock_session = AsyncMock()
+    
+    mock_product = Product(id=1, name="Test CSV", target_url="http://csv.com", target_price=Decimal("150"))
+    mock_result = MagicMock()
+    mock_result.__iter__.return_value = [(mock_product, Decimal("100.50"))]
+    mock_session.execute.return_value = mock_result
+
+    response = await export_products_csv(session=mock_session)
+    assert response.status_code == 200
+    
+    assert response.media_type == "text/csv; charset=utf-8"
+    
+    body = b""
+    async for chunk in response.body_iterator:
+        body += chunk
+    
+    assert b'\xef\xbb\xbf' in body
+    assert b"ID," in body
+
+@pytest.mark.asyncio
+async def test_get_active_products_with_category_filter():
+    mock_session = AsyncMock()
+    mock_session.scalar.return_value = 1
+    mock_session.scalars.return_value = [Product(id=1, name="Test", category_id=1, is_active=True)]
+
+    total, items = await get_active_products(
+        session=mock_session,
+        category_id=1
+    )
+    assert total == 1
+    assert len(items) == 1
+
+@pytest.mark.asyncio
+async def test_update_product_missing_tags():
+    mock_session = AsyncMock()
+    product = Product(id=1, name="Product", target_url="https://example.com/product")
+    mock_session.scalar.return_value = product
+    mock_session.scalars.return_value = []
+    
+    with pytest.raises(HTTPException) as exc:
+        await update_product(
+            product_id=1,
+            product_in=ProductUpdate(tag_ids=[999]),
+            session=mock_session,
+        )
+    assert exc.value.status_code == 400
+
+@pytest.mark.asyncio
+async def test_update_product_target_url_conversion():
+    mock_session = AsyncMock()
+    product = Product(id=1, name="Before", target_url="https://example.com/old")
+    mock_session.scalar.return_value = product
+
+    result = await update_product(
+        product_id=1,
+        product_in=ProductUpdate(
+            target_url="https://example.com/new-url",
+        ),
+        session=mock_session,
+    )
     mock_session.commit.assert_called_once()
