@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 import app.db.models
 from app.core.config import settings
-from app.core.telegram import send_telegram_notification  
+from app.modules.notifications.telegram.service import notification_service
 from app.modules.prices.models import PriceHistory
 from app.modules.products.models import Product
 from app.workers.celery_app import celery_app
@@ -30,7 +30,6 @@ async def _collect_single_product_price(task, product_id: int) -> dict:
 
     try:
         async with session_factory() as session:
-
             product = await session.get(Product, product_id)
             if not product or not product.is_active:
                 task.update_state(state="IGNORED", meta={"message": "The product has been deleted or deactivated."})
@@ -44,17 +43,23 @@ async def _collect_single_product_price(task, product_id: int) -> dict:
                 headers={"User-Agent": "PriceIntelligenceBot/0.1"},
                 timeout=timeout,
             ) as client:
-                task.update_state(state="NAVIGATING", meta={"message": f"Going to the product page..."})
+                task.update_state(state="NAVIGATING", meta={"message": "Going to the product page..."})
                 
                 try:
                     parser = PriceParserFactory.create(url=product.target_url, client=client)
-                    
                     task.update_state(state="PARSING", meta={"message": "Analyzing and looking for the price..."})
                     parsed_price = await parser.fetch_price()
                     
                 except (httpx.HTTPError, PriceParserError, ValidationError) as error:
                     logger.warning("Price collection failed for product_id=%s: %s", product.id, error)
-                    task.update_state(state="FAILURE", meta={"message": f"Parsing error (site protection failed or selector was not found): {error}"})
+                    task.update_state(state="FAILURE", meta={"message": f"Parsing error: {error}"})
+                    
+                    await notification_service.notify_parsing_error(
+                        product_id=product.id,
+                        product_url=product.target_url,
+                        error_message=str(error)
+                    )
+                    
                     raise Ignore() 
 
                 history_row = PriceHistory(
@@ -65,13 +70,13 @@ async def _collect_single_product_price(task, product_id: int) -> dict:
                 session.add(history_row)
                 
                 if product.target_price and parsed_price.price <= product.target_price:
-                    msg = (
-                        f"🔥 <b>The price has reached the target</b>\n\n"
-                        f"Product: <a href='{product.target_url}'>{product.name}</a>\n"
-                        f"Current price: <b>{parsed_price.price} {parsed_price.currency}</b>\n"
-                        f"Desired price: {product.target_price} {parsed_price.currency}"
+                    await notification_service.notify_price_drop(
+                        product_name=product.name,
+                        product_url=product.target_url,
+                        current_price=parsed_price.price,
+                        target_price=product.target_price,
+                        currency=parsed_price.currency
                     )
-                    await send_telegram_notification(msg)
 
                 await session.commit()
 
